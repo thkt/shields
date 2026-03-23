@@ -84,6 +84,14 @@ fn check_passes_empty_command() {
     assert_eq!(code, 0);
 }
 
+// Absolute path bypass: /bin/rm should be caught by \b word boundary
+#[test]
+fn check_blocks_absolute_path_rm() {
+    let input = r#"{"tool_name":"Bash","tool_input":{"command":"/bin/rm -rf /"}}"#;
+    let (stdout, _, _) = shields("check", input);
+    assert_eq!(parse_decision(&stdout), Some("block".into()));
+}
+
 // T-033: blocked pattern has stderr log
 #[test]
 fn check_block_logs_to_stderr() {
