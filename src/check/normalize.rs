@@ -1,28 +1,34 @@
-/// Normalize a command string to defeat common bypass techniques.
-/// Order matters: N7 before N1 (needs quotes), N5 before N4 (needs braces).
-pub fn normalize(command: &str) -> String {
+/// Decode obfuscation while preserving shell structure (quotes stay intact).
+/// Applies: N7 (ANSI-C) → N5 (indirection) → N6 (backslash) → N3 (IFS).
+pub fn decode(command: &str) -> String {
     let mut cmd = command.to_string();
-    // Order matters: N7 needs quotes intact (before N1), N5 needs braces intact (before N4)
     if cmd.contains("$'") {
         cmd = n7_decode_ansi_c(&cmd);
     }
     if cmd.contains("${!") {
         cmd = n5_strip_var_indirection(&cmd);
     }
-    if cmd.contains(['\'', '"', '`']) {
-        cmd = n1_strip_quotes(&cmd);
-    }
-    if cmd.contains("$(") {
-        cmd = n2_strip_command_sub(&cmd);
+    if cmd.contains('\\') {
+        cmd = n6_strip_backslash(&cmd);
     }
     if cmd.contains("IFS") {
         cmd = n3_strip_ifs(&cmd);
     }
+    cmd
+}
+
+/// Strip shell structure (quotes, braces, command substitution markers).
+/// Applies: N1 (quotes) → N4 (braces) → N2 (cmd sub).
+pub fn strip(command: &str) -> String {
+    let mut cmd = command.to_string();
+    if cmd.contains(['\'', '"', '`']) {
+        cmd = n1_strip_quotes(&cmd);
+    }
     if cmd.contains(['{', '}', ',']) {
         cmd = n4_strip_braces(&cmd);
     }
-    if cmd.contains('\\') {
-        cmd = n6_strip_backslash(&cmd);
+    if cmd.contains("$(") {
+        cmd = n2_strip_command_sub(&cmd);
     }
     cmd
 }
@@ -69,7 +75,6 @@ fn n7_decode_ansi_c(cmd: &str) -> String {
     let mut i = 0;
 
     while i < len {
-        // Match $'...' ANSI-C quoting
         if i + 2 < len && bytes[i] == b'$' && bytes[i + 1] == b'\'' {
             let start = i;
             i += 2; // skip $'
@@ -77,35 +82,14 @@ fn n7_decode_ansi_c(cmd: &str) -> String {
             let mut valid = false;
 
             while i < len && bytes[i] != b'\'' {
-                if i + 1 < len && bytes[i] == b'\\' {
-                    // Hex: \xNN
-                    if i + 3 < len && bytes[i + 1] == b'x' {
-                        let hex = &cmd[i + 2..i + 4];
-                        if let Ok(byte) = u8::from_str_radix(hex, 16) {
-                            decoded.push(byte as char);
-                            i += 4;
-                            valid = true;
-                            continue;
-                        }
-                    }
-                    // Octal: \NNN (1-3 octal digits)
-                    if bytes[i + 1] >= b'0' && bytes[i + 1] <= b'7' {
-                        let oct_start = i + 1;
-                        let mut oct_end = oct_start;
-                        while oct_end < len
-                            && oct_end < oct_start + 3
-                            && bytes[oct_end] >= b'0'
-                            && bytes[oct_end] <= b'7'
-                        {
-                            oct_end += 1;
-                        }
-                        if let Ok(byte) = u8::from_str_radix(&cmd[oct_start..oct_end], 8) {
-                            decoded.push(byte as char);
-                            i = oct_end;
-                            valid = true;
-                            continue;
-                        }
-                    }
+                if i + 1 < len
+                    && bytes[i] == b'\\'
+                    && let Some((ch, consumed)) = decode_escape(cmd, bytes, i, len)
+                {
+                    decoded.push(ch);
+                    i += consumed;
+                    valid = true;
+                    continue;
                 }
                 decoded.push(bytes[i] as char);
                 i += 1;
@@ -113,7 +97,7 @@ fn n7_decode_ansi_c(cmd: &str) -> String {
 
             if valid && i < len && bytes[i] == b'\'' {
                 result.push_str(&decoded);
-                i += 1; // skip closing '
+                i += 1;
             } else {
                 result.push_str(&cmd[start..i.min(len)]);
             }
@@ -126,73 +110,220 @@ fn n7_decode_ansi_c(cmd: &str) -> String {
     result
 }
 
+/// Decode a single escape sequence starting at `\` (position `i`).
+/// Returns (decoded_char, bytes_consumed) or None if unrecognized.
+fn decode_escape(cmd: &str, bytes: &[u8], i: usize, len: usize) -> Option<(char, usize)> {
+    // \xNN — hex byte
+    if i + 3 < len && bytes[i + 1] == b'x' {
+        let hex = &cmd[i + 2..i + 4];
+        if let Ok(byte) = u8::from_str_radix(hex, 16) {
+            return Some((byte as char, 4));
+        }
+    }
+    // \uNNNN — 4-digit Unicode
+    if i + 5 < len
+        && bytes[i + 1] == b'u'
+        && let Ok(cp) = u32::from_str_radix(&cmd[i + 2..i + 6], 16)
+        && let Some(ch) = char::from_u32(cp)
+    {
+        return Some((ch, 6));
+    }
+    // \UNNNNNNNN — 8-digit Unicode
+    if i + 9 < len
+        && bytes[i + 1] == b'U'
+        && let Ok(cp) = u32::from_str_radix(&cmd[i + 2..i + 10], 16)
+        && let Some(ch) = char::from_u32(cp)
+    {
+        return Some((ch, 10));
+    }
+    // \NNN — octal (1-3 digits)
+    if bytes[i + 1] >= b'0' && bytes[i + 1] <= b'7' {
+        let oct_start = i + 1;
+        let mut oct_end = oct_start;
+        while oct_end < len && oct_end < oct_start + 3 && bytes[oct_end] >= b'0' && bytes[oct_end] <= b'7' {
+            oct_end += 1;
+        }
+        if let Ok(byte) = u8::from_str_radix(&cmd[oct_start..oct_end], 8) {
+            return Some((byte as char, oct_end - i));
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // --- N1: Quote removal ---
+    // --- decode tests ---
 
-    // T-004: single quotes
     #[test]
-    fn t004_n1_single_quotes_removed() {
-        assert_eq!(normalize("'rm' -rf /"), "rm -rf /");
+    fn decode_preserves_quotes() {
+        let input = r#"sudo bash -c "rm -rf /""#;
+        assert_eq!(decode(input), input);
     }
 
     #[test]
-    fn n1_double_quotes_removed() {
-        assert_eq!(n1_strip_quotes(r#""rm" -rf /"#), "rm -rf /");
+    fn decode_ansi_c_hex() {
+        assert_eq!(decode("$'\\x72\\x6d' -rf /"), "rm -rf /");
     }
 
     #[test]
-    fn n1_backticks_removed() {
-        assert_eq!(n1_strip_quotes("`rm` -rf /"), "rm -rf /");
+    fn decode_ansi_c_octal() {
+        assert_eq!(decode("$'\\162\\155' -rf /"), "rm -rf /");
     }
 
     #[test]
-    fn n1_mixed_quotes() {
-        assert_eq!(n1_strip_quotes("'r\"m` -rf"), "rm -rf");
-    }
-
-    // --- N2: Command substitution removal ---
-
-    // T-005
-    #[test]
-    fn t005_n2_command_sub_removed() {
-        assert_eq!(normalize("$(rm -rf /)"), "rm -rf /)");
+    fn decode_ansi_c_unicode_u() {
+        assert_eq!(decode("$'\\u0072\\u006d' -rf /"), "rm -rf /");
     }
 
     #[test]
-    fn n2_preserves_dollar_without_paren() {
-        assert_eq!(n2_strip_command_sub("$VAR"), "$VAR");
-    }
-
-    // --- N3: IFS expansion ---
-
-    // T-006
-    #[test]
-    fn t006_n3_ifs_braces_replaced() {
-        assert_eq!(normalize("rm${IFS}-rf"), "rm -rf");
+    fn decode_ansi_c_unicode_big_u() {
+        assert_eq!(n7_decode_ansi_c("$'\\U00000041'"), "A");
     }
 
     #[test]
-    fn n3_ifs_bare_replaced() {
+    fn decode_var_indirection() {
+        assert_eq!(decode("${!var}"), "${var}");
+    }
+
+    #[test]
+    fn decode_backslash() {
+        assert_eq!(decode(r"r\m -rf"), "rm -rf");
+    }
+
+    #[test]
+    fn decode_ifs() {
+        assert_eq!(decode("rm${IFS}-rf"), "rm -rf");
+    }
+
+    #[test]
+    fn decode_identity() {
+        assert_eq!(decode("cargo test"), "cargo test");
+    }
+
+    // --- strip tests ---
+
+    #[test]
+    fn strip_quotes() {
+        assert_eq!(strip(r#""rm" -rf /"#), "rm -rf /");
+    }
+
+    #[test]
+    fn strip_braces() {
+        assert_eq!(strip("{rm,-rf,/}"), "rm -rf /");
+    }
+
+    #[test]
+    fn strip_command_sub() {
+        assert_eq!(strip("$(rm -rf /)"), "rm -rf /)");
+    }
+
+    // --- cross-phase: decode + strip composition ---
+
+    #[test]
+    fn cross_phase_indirection_then_braces() {
+        // decode: N5 ${!var} → ${var}, strip: N4 ${var} → $var
+        assert_eq!(strip(&decode("${!var}")), "$var");
+    }
+
+    #[test]
+    fn cross_phase_backslash_then_quotes() {
+        // decode: N6 strips \m, strip: N1 strips quotes
+        assert_eq!(strip(&decode("'r\\m' -rf /")), "rm -rf /");
+    }
+
+    #[test]
+    fn cross_phase_ifs_then_braces() {
+        // decode: N3 IFS→space, strip: N4 braces→spaces
+        assert_eq!(strip(&decode("{rm,${IFS}-rf}")), "rm  -rf");
+    }
+
+    // --- n7 internals ---
+
+    #[test]
+    fn n7_single_hex() {
+        assert_eq!(n7_decode_ansi_c("$'\\x41'"), "A");
+    }
+
+    #[test]
+    fn n7_single_octal() {
+        assert_eq!(n7_decode_ansi_c("$'\\101'"), "A");
+    }
+
+    #[test]
+    fn n7_mixed_hex_octal() {
+        assert_eq!(n7_decode_ansi_c("$'\\x72\\155'"), "rm");
+    }
+
+    #[test]
+    fn n7_mixed_hex_unicode() {
+        assert_eq!(n7_decode_ansi_c("$'\\x72\\u006d'"), "rm");
+    }
+
+    #[test]
+    fn n7_passthrough() {
+        assert_eq!(n7_decode_ansi_c("normal command"), "normal command");
+    }
+
+    #[test]
+    fn n7_unterminated() {
+        assert_eq!(n7_decode_ansi_c("$'unterminated"), "$'unterminated");
+    }
+
+    #[test]
+    fn n7_invalid_hex() {
+        assert_eq!(n7_decode_ansi_c("$'\\xZZ'"), "$'\\xZZ'");
+    }
+
+    #[test]
+    fn n7_empty() {
+        assert_eq!(n7_decode_ansi_c("$''"), "$''");
+    }
+
+    #[test]
+    fn n7_mixed_valid_invalid() {
+        let result = n7_decode_ansi_c("$'\\x72\\xZZ'");
+        assert!(result.starts_with('r'));
+    }
+
+    // --- n6 internals ---
+
+    #[test]
+    fn n6_multiple() {
+        assert_eq!(n6_strip_backslash(r"g\i\t push"), "git push");
+    }
+
+    #[test]
+    fn n6_non_alpha_kept() {
+        assert_eq!(n6_strip_backslash(r"echo\ hello"), r"echo\ hello");
+    }
+
+    #[test]
+    fn n6_trailing_kept() {
+        assert_eq!(n6_strip_backslash("test\\"), "test\\");
+    }
+
+    #[test]
+    fn n6_before_digit() {
+        assert_eq!(n6_strip_backslash("r\\1m"), "r1m");
+    }
+
+    #[test]
+    fn n6_before_dollar_kept() {
+        assert_eq!(n6_strip_backslash("r\\$m"), "r\\$m");
+    }
+
+    #[test]
+    fn n6_double_backslash() {
+        assert_eq!(n6_strip_backslash("r\\\\m"), "r\\m");
+    }
+
+    // --- other internals ---
+
+    #[test]
+    fn n3_bare_ifs() {
         assert_eq!(n3_strip_ifs("rm$IFS-rf"), "rm -rf");
-    }
-
-    // --- N4: Brace expansion ---
-
-    // T-007
-    #[test]
-    fn t007_n4_braces_expanded() {
-        assert_eq!(normalize("{rm,-rf,/}"), "rm -rf /");
-    }
-
-    // --- N5: Variable indirection ---
-
-    // T-008: N5 transform strips `!` from `${!var}`
-    #[test]
-    fn t008_n5_indirection_stripped() {
-        assert_eq!(n5_strip_var_indirection("${!var}"), "${var}");
     }
 
     #[test]
@@ -200,98 +331,4 @@ mod tests {
         assert_eq!(n5_strip_var_indirection("${var}"), "${var}");
     }
 
-    #[test]
-    fn n5_full_normalize_strips_braces_too() {
-        // After N5 → N4, ${!var} → ${var} → $var
-        assert_eq!(normalize("${!var}"), "$var");
-    }
-
-    // --- N6: Backslash removal (NEW) ---
-
-    // T-009
-    #[test]
-    fn t009_n6_backslash_before_alpha_removed() {
-        assert_eq!(normalize(r"r\m -rf"), "rm -rf");
-    }
-
-    #[test]
-    fn n6_multiple_backslashes() {
-        assert_eq!(n6_strip_backslash(r"g\i\t push"), "git push");
-    }
-
-    #[test]
-    fn n6_backslash_before_non_alpha_kept() {
-        assert_eq!(n6_strip_backslash(r"echo\ hello"), r"echo\ hello");
-    }
-
-    #[test]
-    fn n6_trailing_backslash_kept() {
-        assert_eq!(n6_strip_backslash("test\\"), "test\\");
-    }
-
-    // --- N7: ANSI-C escape decode (hex + octal) ---
-
-    // T-010: hex
-    #[test]
-    fn t010_n7_hex_decoded() {
-        assert_eq!(normalize("$'\\x72\\x6d' -rf /"), "rm -rf /");
-    }
-
-    #[test]
-    fn n7_single_hex_char() {
-        assert_eq!(n7_decode_ansi_c("$'\\x41'"), "A");
-    }
-
-    #[test]
-    fn n7_non_hex_preserved() {
-        assert_eq!(n7_decode_ansi_c("normal command"), "normal command");
-    }
-
-    #[test]
-    fn n7_incomplete_pattern_preserved() {
-        assert_eq!(n7_decode_ansi_c("$'unterminated"), "$'unterminated");
-    }
-
-    // SEC-06: octal decode
-    #[test]
-    fn n7_octal_rm_decoded() {
-        // \162 = 'r', \155 = 'm'
-        assert_eq!(normalize("$'\\162\\155' -rf /"), "rm -rf /");
-    }
-
-    #[test]
-    fn n7_single_octal_char() {
-        // \101 = 'A'
-        assert_eq!(n7_decode_ansi_c("$'\\101'"), "A");
-    }
-
-    #[test]
-    fn n7_mixed_hex_octal() {
-        // \x72 = 'r', \155 = 'm'
-        assert_eq!(n7_decode_ansi_c("$'\\x72\\155'"), "rm");
-    }
-
-    #[test]
-    fn n7_octal_git() {
-        // \147 = 'g', \151 = 'i', \164 = 't'
-        assert_eq!(normalize("$'\\147\\151\\164' push"), "git push");
-    }
-
-    // --- Combined transforms ---
-
-    // T-011: both raw and normalized are checked (normalize doesn't destroy valid commands)
-    #[test]
-    fn t011_identity_for_normal_command() {
-        assert_eq!(normalize("cargo test"), "cargo test");
-    }
-
-    #[test]
-    fn combined_n1_n6() {
-        assert_eq!(normalize("'r\\m' -rf /"), "rm -rf /");
-    }
-
-    #[test]
-    fn combined_n3_n4() {
-        assert_eq!(normalize("{rm,${IFS}-rf}"), "rm  -rf");
-    }
 }

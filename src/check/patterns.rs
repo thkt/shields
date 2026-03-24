@@ -35,10 +35,10 @@ fn init_builtin_patterns() -> Vec<Pattern> {
         Pattern::new("shred", r"\bshred\s", "Use \"mv <file> ~/.Trash/\" instead of shred."),
 
         // --- Remote code execution via pipe ---
-        Pattern::new("curl-pipe-shell", r"\bcurl\s.*\|\s*(bash|sh|zsh|dash)\b", "Do not pipe remote content to a shell. Download the file, review it, then execute."),
-        Pattern::new("wget-pipe-shell", r"\bwget\s.*\|\s*(bash|sh|zsh|dash)\b", "Do not pipe remote content to a shell. Download the file, review it, then execute."),
+        Pattern::new("curl-pipe-shell", r"\bcurl\s.*\|\s*(bash|sh|zsh|dash|ksh)\b", "Do not pipe remote content to a shell. Download the file, review it, then execute."),
+        Pattern::new("wget-pipe-shell", r"\bwget\s.*\|\s*(bash|sh|zsh|dash|ksh)\b", "Do not pipe remote content to a shell. Download the file, review it, then execute."),
         Pattern::new("curl-output-pipe", r"\bcurl\s.*-o\s*-.*\|", "Do not pipe remote content to a shell. Download the file, review it, then execute."),
-        Pattern::new("process-sub-exec", r"\b(bash|sh|zsh|dash|source|\.)\s+<\(", "Do not execute remote content via process substitution. Download the file, review it, then execute."),
+        Pattern::new("process-sub-exec", r"\b(bash|sh|zsh|dash|ksh|source|\.)\s+<\(", "Do not execute remote content via process substitution. Download the file, review it, then execute."),
 
         // --- Destructive git operations ---
         Pattern::new("git-push", r"\bgit\s.*\bpush\b", "git push is prohibited. Ask the user to push manually or give explicit approval."),
@@ -68,7 +68,7 @@ fn init_builtin_patterns() -> Vec<Pattern> {
         Pattern::new("perl-inline", r"\bperl\s+-e\b", "Do not use perl -e for inline execution. Write a script file instead."),
         Pattern::new("ruby-inline", r"\bruby\s+-e\b", "Do not use ruby -e for inline execution. Write a script file instead."),
         Pattern::new("node-inline", r"\bnode\s+-e\b", "Do not use node -e for inline execution. Write a script file instead."),
-        Pattern::new("base64-pipe-shell", r"\bbase64\s.*\|\s*(bash|sh|zsh|dash)\b", "Do not decode and execute base64-encoded commands."),
+        Pattern::new("base64-pipe-shell", r"\bbase64\s.*\|\s*(bash|sh|zsh|dash|ksh)\b", "Do not decode and execute base64-encoded commands."),
         Pattern::new("osascript", r"\bosascript\s", "osascript can execute arbitrary code. Ask the user to run it manually."),
         Pattern::new("php-inline", r"\bphp\s+-r\b", "Do not use php -r for inline execution. Write a script file instead."),
         Pattern::new("deno-exec", r"\bdeno\s+(run|eval|repl)\b", "Do not use deno run/eval for arbitrary execution."),
