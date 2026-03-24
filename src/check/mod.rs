@@ -6,7 +6,11 @@ pub mod unwrap;
 use crate::input::HookInput;
 use crate::output::Decision;
 
-pub fn run(input: &HookInput, custom_patterns: &[patterns::Pattern], custom_secrets: &[regex::Regex]) {
+pub fn run(
+    input: &HookInput,
+    custom_patterns: &[patterns::Pattern],
+    custom_secrets: &[regex::Regex],
+) {
     let command = match input.command() {
         Some(cmd) if !cmd.is_empty() => cmd,
         _ => return,
@@ -20,7 +24,11 @@ pub fn run(input: &HookInput, custom_patterns: &[patterns::Pattern], custom_secr
         custom: custom_patterns,
     };
     let decoded = normalize::decode(&oneline);
-    let log_ctx = LogContext { tool, agent, oneline: &oneline };
+    let log_ctx = LogContext {
+        tool,
+        agent,
+        oneline: &oneline,
+    };
 
     if check_via_unwrap(&decoded, &log_ctx, &all_patterns) {
         return;
@@ -35,7 +43,9 @@ pub fn run(input: &HookInput, custom_patterns: &[patterns::Pattern], custom_secr
         eprintln!("shields: BLOCKED tool={tool} agent={agent} secret=\"{desc}\" file=\"{file}\"");
         Decision::block(
             &format!("Sensitive file staged: {file}"),
-            Some(&format!("{desc}. Remove it from staging with: git reset HEAD {file}")),
+            Some(&format!(
+                "{desc}. Remove it from staging with: git reset HEAD {file}"
+            )),
         )
         .print();
         #[allow(clippy::needless_return)]
@@ -50,15 +60,25 @@ fn check_via_unwrap(decoded: &str, ctx: &LogContext, pats: &PatternSets) -> bool
 
     if let Some(reason) = &result.block {
         let via = format_path(&result.path);
-        eprintln!("shields: BLOCKED tool={} agent={} reason=\"{reason:?}\"{via} command=\"{}\"", ctx.tool, ctx.agent, ctx.oneline);
-        Decision::block(&format!("Structural block: {reason:?}"), Some(reason.context())).print();
+        eprintln!(
+            "shields: BLOCKED tool={} agent={} reason=\"{reason:?}\"{via} command=\"{}\"",
+            ctx.tool, ctx.agent, ctx.oneline
+        );
+        Decision::block(
+            &format!("Structural block: {reason:?}"),
+            Some(reason.context()),
+        )
+        .print();
         return true;
     }
 
     for segment in &result.segments {
         let joined = segment.join(" ");
         let stripped = normalize::strip(&joined);
-        if let Some(pat) = pats.find_match(&joined).or_else(|| pats.find_match(&stripped)) {
+        if let Some(pat) = pats
+            .find_match(&joined)
+            .or_else(|| pats.find_match(&stripped))
+        {
             let via = format_path(&result.path);
             block_on_pattern(pat, &via, ctx);
             return true;
@@ -104,9 +124,16 @@ impl PatternSets<'_> {
 }
 
 fn block_on_pattern(pat: &patterns::Pattern, via: &str, ctx: &LogContext) {
-    eprintln!("shields: BLOCKED tool={} agent={} pattern=\"{}\"{via} command=\"{}\"", ctx.tool, ctx.agent, pat.id, ctx.oneline);
+    eprintln!(
+        "shields: BLOCKED tool={} agent={} pattern=\"{}\"{via} command=\"{}\"",
+        ctx.tool, ctx.agent, pat.id, ctx.oneline
+    );
     eprintln!("shields: hint: {}", pat.context);
-    Decision::block(&format!("Dangerous pattern: {}", pat.id), Some(&pat.context)).print();
+    Decision::block(
+        &format!("Dangerous pattern: {}", pat.id),
+        Some(&pat.context),
+    )
+    .print();
 }
 
 fn format_path(path: &[String]) -> String {

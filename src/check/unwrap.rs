@@ -23,8 +23,12 @@ pub enum BlockReason {
 impl BlockReason {
     pub fn context(&self) -> &'static str {
         match self {
-            Self::DynamicGeneration => "Dynamic command generation (e.g. $() or backticks) inside shell -c is blocked.",
-            Self::PipeToShell => "Piping to a shell (e.g. curl | bash) is blocked. Download and review first.",
+            Self::DynamicGeneration => {
+                "Dynamic command generation (e.g. $() or backticks) inside shell -c is blocked."
+            }
+            Self::PipeToShell => {
+                "Piping to a shell (e.g. curl | bash) is blocked. Download and review first."
+            }
             Self::DepthExceeded => "Command nesting depth exceeded safety limit.",
             Self::TooManyTokens => "Command has too many tokens.",
             Self::TooManySegments => "Command has too many segments.",
@@ -43,11 +47,19 @@ pub struct UnwrapResult {
 
 impl UnwrapResult {
     fn empty() -> Self {
-        Self { segments: vec![], block: None, path: vec![] }
+        Self {
+            segments: vec![],
+            block: None,
+            path: vec![],
+        }
     }
 
     fn blocked(reason: BlockReason) -> Self {
-        Self { segments: vec![], block: Some(reason), path: vec![] }
+        Self {
+            segments: vec![],
+            block: Some(reason),
+            path: vec![],
+        }
     }
 }
 
@@ -55,7 +67,9 @@ impl UnwrapResult {
 
 const SHELLS: &[&str] = &["bash", "sh", "zsh", "dash", "ksh"];
 
-const WRAPPERS: &[&str] = &["sudo", "doas", "pkexec", "env", "nohup", "nice", "exec", "command"];
+const WRAPPERS: &[&str] = &[
+    "sudo", "doas", "pkexec", "env", "nohup", "nice", "exec", "command",
+];
 
 const WRAPPERS_WITH_ARG: &[&str] = &["timeout"];
 
@@ -104,7 +118,11 @@ pub fn unwrap(command: &str) -> UnwrapResult {
         }
     }
 
-    UnwrapResult { segments: all_segments, block: None, path }
+    UnwrapResult {
+        segments: all_segments,
+        block: None,
+        path,
+    }
 }
 
 // --- Compound split (quote-aware) ---
@@ -120,7 +138,9 @@ fn compound_split(command: &str) -> Vec<String> {
         // Single-quoted: no escapes, only closing ' ends the region (POSIX)
         if in_single {
             current.push(c);
-            if c == '\'' { in_single = false; }
+            if c == '\'' {
+                in_single = false;
+            }
             continue;
         }
         // Double-quoted: backslash escapes the next char
@@ -133,7 +153,9 @@ fn compound_split(command: &str) -> Vec<String> {
                 continue;
             }
             current.push(c);
-            if c == '"' { in_double = false; }
+            if c == '"' {
+                in_double = false;
+            }
             continue;
         }
         // Unquoted
@@ -144,8 +166,14 @@ fn compound_split(command: &str) -> Vec<String> {
                     current.push(next);
                 }
             }
-            '\'' => { in_single = true; current.push(c); }
-            '"' => { in_double = true; current.push(c); }
+            '\'' => {
+                in_single = true;
+                current.push(c);
+            }
+            '"' => {
+                in_double = true;
+                current.push(c);
+            }
             '&' if chars.peek() == Some(&'&') => {
                 chars.next();
                 push_segment(&mut segments, &mut current);
@@ -312,7 +340,10 @@ fn is_bare_shell(tokens: &[String]) -> bool {
 }
 
 fn basename(path: &str) -> &str {
-    Path::new(path).file_name().and_then(|s| s.to_str()).unwrap_or(path)
+    Path::new(path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(path)
 }
 
 #[cfg(test)]
@@ -425,7 +456,13 @@ mod tests {
         let result = unwrap(r#"bash -c "sudo rm -rf /""#);
         assert!(result.block.is_none());
         assert!(!result.segments.is_empty());
-        let flat: Vec<&str> = result.segments.last().unwrap().iter().map(|s| s.as_str()).collect();
+        let flat: Vec<&str> = result
+            .segments
+            .last()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
         assert_eq!(flat, vec!["rm", "-rf", "/"]);
     }
 
@@ -434,7 +471,13 @@ mod tests {
     fn t030_nested_launcher() {
         let result = unwrap(r#"bash -c 'sh -c "rm -rf /"'"#);
         assert!(result.block.is_none());
-        let flat: Vec<&str> = result.segments.last().unwrap().iter().map(|s| s.as_str()).collect();
+        let flat: Vec<&str> = result
+            .segments
+            .last()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
         assert_eq!(flat, vec!["rm", "-rf", "/"]);
     }
 
@@ -472,7 +515,7 @@ mod tests {
     fn t018_depth_exceeded() {
         // 6 levels deep: bash -c 'bash -c "bash -c ..."'
         let result = unwrap(
-            r#"bash -c "bash -c 'bash -c \"bash -c \\\"bash -c \\\\\\\"bash -c cmd\\\\\\\"\\\"\"'""#
+            r#"bash -c "bash -c 'bash -c \"bash -c \\\"bash -c \\\\\\\"bash -c cmd\\\\\\\"\\\"\"'""#,
         );
         // This deeply nested command should either exceed depth or fail to parse
         assert!(result.block.is_some());
@@ -487,14 +530,20 @@ mod tests {
 
     #[test]
     fn t020_too_many_tokens() {
-        let cmd = (0..1001).map(|i| format!("arg{i}")).collect::<Vec<_>>().join(" ");
+        let cmd = (0..1001)
+            .map(|i| format!("arg{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         let result = unwrap(&cmd);
         assert_eq!(result.block, Some(BlockReason::TooManyTokens));
     }
 
     #[test]
     fn t021_too_many_segments() {
-        let cmd = (0..21).map(|i| format!("cmd{i}")).collect::<Vec<_>>().join(" ; ");
+        let cmd = (0..21)
+            .map(|i| format!("cmd{i}"))
+            .collect::<Vec<_>>()
+            .join(" ; ");
         let result = unwrap(&cmd);
         assert_eq!(result.block, Some(BlockReason::TooManySegments));
     }
@@ -513,7 +562,13 @@ mod tests {
     fn t022_sudo_env_bash_c_rm() {
         let result = unwrap(r#"sudo env bash -c "rm -rf /""#);
         assert!(result.block.is_none());
-        let flat: Vec<&str> = result.segments.last().unwrap().iter().map(|s| s.as_str()).collect();
+        let flat: Vec<&str> = result
+            .segments
+            .last()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
         assert_eq!(flat, vec!["rm", "-rf", "/"]);
     }
 
@@ -654,5 +709,4 @@ mod tests {
         let result = unwrap(r#"doas bash -c "$(evil)""#);
         assert_eq!(result.block, Some(BlockReason::DynamicGeneration));
     }
-
 }

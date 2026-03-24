@@ -140,7 +140,11 @@ fn decode_escape(cmd: &str, bytes: &[u8], i: usize, len: usize) -> Option<(char,
     if bytes[i + 1] >= b'0' && bytes[i + 1] <= b'7' {
         let oct_start = i + 1;
         let mut oct_end = oct_start;
-        while oct_end < len && oct_end < oct_start + 3 && bytes[oct_end] >= b'0' && bytes[oct_end] <= b'7' {
+        while oct_end < len
+            && oct_end < oct_start + 3
+            && bytes[oct_end] >= b'0'
+            && bytes[oct_end] <= b'7'
+        {
             oct_end += 1;
         }
         if let Ok(byte) = u8::from_str_radix(&cmd[oct_start..oct_end], 8) {
@@ -330,5 +334,4 @@ mod tests {
     fn n5_preserves_normal_var() {
         assert_eq!(n5_strip_var_indirection("${var}"), "${var}");
     }
-
 }
