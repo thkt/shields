@@ -31,8 +31,8 @@ pub fn check_secrets(
 
 fn is_git_commit(command: &str) -> bool {
     let trimmed = command.trim();
-    trimmed.starts_with("git commit") || trimmed.starts_with("git -c ")
-        && trimmed.contains("commit")
+    trimmed.starts_with("git commit")
+        || trimmed.starts_with("git -c ") && trimmed.contains("commit")
 }
 
 struct SecretPattern {
@@ -43,9 +43,8 @@ struct SecretPattern {
 impl SecretPattern {
     fn new(pattern: &str, description: &'static str) -> Self {
         Self {
-            regex: Regex::new(pattern).unwrap_or_else(|e| {
-                panic!("shields: invalid secret pattern: {e}")
-            }),
+            regex: Regex::new(pattern)
+                .unwrap_or_else(|e| panic!("shields: invalid secret pattern: {e}")),
             description,
         }
     }

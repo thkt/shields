@@ -13,10 +13,7 @@ fn validate_relative_paths(paths: Vec<String>, label: &str) -> Vec<String> {
                 eprintln!("shields: {label} entry '{p}' is absolute path, ignored");
                 return false;
             }
-            if path
-                .components()
-                .any(|c| matches!(c, Component::ParentDir))
-            {
+            if path.components().any(|c| matches!(c, Component::ParentDir)) {
                 eprintln!("shields: {label} entry '{p}' contains traversal, ignored");
                 return false;
             }
@@ -88,10 +85,7 @@ impl ShieldsConfig {
         let parsed = match serde_json::from_str::<ToolsJson>(&content) {
             Ok(p) => p,
             Err(e) => {
-                eprintln!(
-                    "shields: config parse error, using defaults: {}",
-                    e
-                );
+                eprintln!("shields: config parse error, using defaults: {}", e);
                 return Self::default();
             }
         };
@@ -146,7 +140,10 @@ impl ShieldsConfig {
             custom_patterns,
             secrets_patterns,
             safe_dirs: validate_relative_paths(shields.safe_dirs.unwrap_or_default(), "safe_dirs"),
-            deny_subagent: validate_relative_paths(shields.deny_subagent.unwrap_or_default(), "deny_subagent"),
+            deny_subagent: validate_relative_paths(
+                shields.deny_subagent.unwrap_or_default(),
+                "deny_subagent",
+            ),
             config_error,
         }
     }
@@ -213,9 +210,7 @@ mod tests {
     // T-016: custom secrets pattern loaded
     #[test]
     fn t016_custom_secrets_pattern_loaded() {
-        let dir = setup_dir(Some(
-            r#"{"shields":{"secrets_patterns":["\\.tfstate$"]}}"#,
-        ));
+        let dir = setup_dir(Some(r#"{"shields":{"secrets_patterns":["\\.tfstate$"]}}"#));
         let config = ShieldsConfig::load(dir.path());
         assert_eq!(config.secrets_patterns.len(), 1);
         assert!(config.secrets_patterns[0].is_match("main.tfstate"));
@@ -238,7 +233,12 @@ mod tests {
         ));
         let config = ShieldsConfig::load(dir.path());
         assert!(config.config_error.is_some());
-        assert!(config.config_error.unwrap().contains("invalid custom pattern"));
+        assert!(
+            config
+                .config_error
+                .unwrap()
+                .contains("invalid custom pattern")
+        );
     }
 
     // SF-06: invalid secrets pattern regex → config_error (fail-hard)
@@ -247,7 +247,12 @@ mod tests {
         let dir = setup_dir(Some(r#"{"shields":{"secrets_patterns":["[bad"]}}"#));
         let config = ShieldsConfig::load(dir.path());
         assert!(config.config_error.is_some());
-        assert!(config.config_error.unwrap().contains("invalid secret pattern"));
+        assert!(
+            config
+                .config_error
+                .unwrap()
+                .contains("invalid secret pattern")
+        );
     }
 
     // Valid patterns → no config_error
@@ -283,7 +288,9 @@ mod tests {
     // SEC-04: absolute path in safe_dirs rejected
     #[test]
     fn absolute_safe_dirs_rejected() {
-        let dir = setup_dir(Some(r#"{"shields":{"safe_dirs":["/tmp","custom","/../etc"]}}"#));
+        let dir = setup_dir(Some(
+            r#"{"shields":{"safe_dirs":["/tmp","custom","/../etc"]}}"#,
+        ));
         let config = ShieldsConfig::load(dir.path());
         assert_eq!(config.safe_dirs, vec!["custom"]);
     }
