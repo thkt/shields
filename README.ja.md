@@ -2,7 +2,7 @@
 
 # shields
 
-Claude Code用セキュリティhook。コマンドガードとファイルACLを1つのRustバイナリに統合し、`bash-safety.sh`・`permission-request.sh`・`secrets-check.sh`を置き換えます。
+Claude Code用セキュリティhook。危険なコマンドのブロックとファイルアクセス制御を1つのRustバイナリで提供します。
 
 ## 特徴
 

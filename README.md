@@ -2,7 +2,7 @@
 
 # shields
 
-Security hook for Claude Code. Consolidates command guard and file ACL into a single Rust binary, replacing `bash-safety.sh`, `permission-request.sh`, and `secrets-check.sh`.
+Security hook for Claude Code. Blocks dangerous commands and controls file access with a single Rust binary.
 
 ## Features
 
