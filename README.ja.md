@@ -93,7 +93,7 @@ N7はhex（`\xNN`）とoctal（`\NNN`）の両方に対応しています。
 バイナリのインストールとhookの登録が自動で行われます。
 
 ```bash
-claude plugins marketplace add github:thkt/sentinels
+claude plugins marketplace add thkt/sentinels
 claude plugins install shields
 ```
 

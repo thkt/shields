@@ -93,7 +93,7 @@ Blocks `git commit` when any staged file matches these 20 builtin patterns:
 Installs the binary and registers hooks automatically:
 
 ```bash
-claude plugins marketplace add github:thkt/sentinels
+claude plugins marketplace add thkt/sentinels
 claude plugins install shields
 ```
 
