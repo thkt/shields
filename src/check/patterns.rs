@@ -10,10 +10,10 @@ pub struct Pattern {
 impl Pattern {
     pub fn new(id: &str, pattern: &str, context: &str) -> Self {
         Self {
-            id: id.to_string(),
+            id: id.to_owned(),
             regex: Regex::new(pattern)
                 .unwrap_or_else(|e| panic!("shields: invalid builtin pattern '{id}': {e}")),
-            context: context.to_string(),
+            context: context.to_owned(),
         }
     }
 }
@@ -77,32 +77,32 @@ fn init_builtin_patterns() -> Vec<Pattern> {
         Pattern::new(
             "git-push",
             r"\bgit\s.*\bpush\b",
-            "git push is prohibited. Ask the user to push manually or give explicit approval.",
+            "Affects shared remote state. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         Pattern::new(
             "git-checkout-all",
             r"\bgit\s+(checkout|restore)\s+(\.|\.[\s]|--\s+\.)",
-            "Do not discard all working directory changes. Specify individual files, or ask the user.",
+            "Discards all working directory changes. Specify individual files, or show the command and suggest the user run it with `!` prefix.",
         ),
         Pattern::new(
             "git-clean",
             r"\bgit\s+clean\s+-[a-zA-Z0-9]*[fd]",
-            "git clean deletes untracked files irreversibly. Ask the user to execute it.",
+            "Deletes untracked files irreversibly. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         Pattern::new(
             "git-reset-hard",
             r"\bgit\s+reset\s+--hard",
-            "git reset --hard discards uncommitted changes. Ask the user to execute it.",
+            "Discards uncommitted changes irreversibly. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         Pattern::new(
             "git-stash-drop",
             r"\bgit\s+stash\s+(drop|clear)",
-            "git stash drop/clear is irreversible. Ask the user to manage stashes.",
+            "Drops/clears stash entries irreversibly. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         Pattern::new(
             "git-branch-force-delete",
             r"\bgit\s+branch\s+-D\b",
-            "git branch -D force-deletes unmerged branches. Use -d for safe deletion, or ask the user.",
+            "Force-deletes unmerged branches. Use -d for safe deletion, or show the command and suggest the user run it with `!` prefix.",
         ),
         // --- Indirect deletion ---
         Pattern::new(
@@ -181,7 +181,7 @@ fn init_builtin_patterns() -> Vec<Pattern> {
         Pattern::new(
             "osascript",
             r"\bosascript\s",
-            "osascript can execute arbitrary code. Ask the user to run it manually.",
+            "Can execute arbitrary code. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         Pattern::new(
             "php-inline",
@@ -208,28 +208,28 @@ fn init_builtin_patterns() -> Vec<Pattern> {
         Pattern::new(
             "curl-upload",
             r"\bcurl\s.*(-T|--upload-file)\s",
-            "File upload via curl is prohibited. Ask the user to upload manually.",
+            "Uploads file to remote server. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         Pattern::new(
             "curl-form-upload",
             r"\bcurl\s.*-F\s+.*@",
-            "File upload via curl -F @file is prohibited. Ask the user to upload manually.",
+            "Uploads file via form to remote server. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         Pattern::new(
             "wget-post-file",
             r"\bwget\s+.*--post-file[=\s]",
-            "File upload via wget --post-file is prohibited. Ask the user to upload manually.",
+            "Uploads file to remote server. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         // --- Data exfiltration: remote transfer ---
         Pattern::new(
             "scp",
             r"\bscp\s",
-            "scp is prohibited. Ask the user to transfer files manually.",
+            "Transfers file to remote host. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         Pattern::new(
             "rsync-remote",
             r"\brsync\s.*[a-zA-Z0-9]@[a-zA-Z0-9].*:",
-            "rsync to remote host is prohibited. Ask the user to sync manually.",
+            "Syncs to remote host. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         // --- Reverse shell ---
         Pattern::new(
@@ -246,18 +246,18 @@ fn init_builtin_patterns() -> Vec<Pattern> {
         Pattern::new(
             "sql-drop",
             r"(?i)\bDROP\s+(TABLE|DATABASE)\b",
-            "DROP TABLE/DATABASE is prohibited. Ask the user to execute destructive SQL.",
+            "Destructive SQL. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         Pattern::new(
             "sql-truncate",
             r"(?i)\bTRUNCATE\s",
-            "TRUNCATE is prohibited. Ask the user to execute destructive SQL.",
+            "Destructive SQL. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         // --- GitHub impersonation ---
         Pattern::new(
             "gh-impersonation",
             r"\bgh\s+pr\s+(comment|review|edit)\b|\bgh\s+issue\s+comment\b",
-            "GitHub impersonation guard: this command posts/edits content as the user. Draft the content and show it to the user instead.",
+            "Posts/edits content as the user on GitHub. Draft the content first, then show the command and suggest the user run it with `!` prefix.",
         ),
     ]
 }
@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn t001_rm_rf_blocked() {
         let pats = builtin_patterns();
-        let m = check_command("rm -rf /", &pats);
+        let m = check_command("rm -rf /", pats);
         assert!(m.is_some());
         assert_eq!(m.unwrap().id, "rm-recursive");
     }
@@ -619,7 +619,7 @@ mod tests {
     #[test]
     fn t033_blocked_pattern_has_context_for_stderr() {
         let pats = builtin_patterns();
-        let m = check_command("rm -rf /", &pats).expect("should match");
+        let m = check_command("rm -rf /", pats).expect("should match");
         assert!(
             !m.context.is_empty(),
             "matched pattern must have non-empty context for stderr"
@@ -855,7 +855,7 @@ mod tests {
     fn returns_first_matching_pattern() {
         let pats = builtin_patterns();
         // rm -rf matches both rm-recursive and rm-force; first one wins
-        let m = check_command("rm -rf /", &pats).unwrap();
+        let m = check_command("rm -rf /", pats).unwrap();
         assert_eq!(m.id, "rm-recursive");
     }
 }

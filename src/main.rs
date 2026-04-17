@@ -4,6 +4,8 @@ mod config;
 mod input;
 mod output;
 
+use std::env;
+
 use clap::{Parser, Subcommand};
 
 use config::ShieldsConfig;
@@ -44,7 +46,7 @@ fn main() {
         }
     };
 
-    let project_dir = std::env::current_dir().unwrap_or_default();
+    let project_dir = env::current_dir().unwrap_or_default();
     let config = ShieldsConfig::load(&project_dir);
 
     if let Some(err) = &config.config_error {

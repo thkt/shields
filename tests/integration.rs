@@ -1,12 +1,13 @@
-use std::process::Command;
+use std::env;
+use std::process::{Command, Stdio};
 
 fn shields(subcommand: &str, stdin_json: &str) -> (String, String, i32) {
-    let bin = std::env::var("CARGO_BIN_EXE_shields").expect("CARGO_BIN_EXE_shields");
+    let bin = env::var("CARGO_BIN_EXE_shields").expect("CARGO_BIN_EXE_shields");
     let output = Command::new(bin)
         .arg(subcommand)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .and_then(|mut child| {
             use std::io::Write;

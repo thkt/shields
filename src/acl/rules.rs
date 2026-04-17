@@ -24,7 +24,7 @@ pub fn evaluate(
         for deny_path in default_deny
             .iter()
             .copied()
-            .chain(deny_subagent.iter().map(|s| s.as_str()))
+            .chain(deny_subagent.iter().map(String::as_str))
         {
             let full = claude_dir.join(deny_path);
             if path_matches(file_path, &full) {
@@ -253,7 +253,7 @@ mod tests {
             "Write",
             false,
             &home(),
-            &["custom".to_string()],
+            &["custom".to_owned()],
             &[],
         );
         assert_eq!(decision, AclDecision::Approve);
@@ -405,7 +405,7 @@ mod tests {
             true,
             &home(),
             &[],
-            &["rules/".to_string()],
+            &["rules/".to_owned()],
         );
         assert_eq!(decision, AclDecision::Deny);
     }

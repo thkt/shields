@@ -1,3 +1,5 @@
+use std::io;
+
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -18,7 +20,7 @@ pub struct HookInput {
 
 impl HookInput {
     pub fn from_stdin() -> Result<Self, serde_json::Error> {
-        let stdin = std::io::stdin();
+        let stdin = io::stdin();
         serde_json::from_reader(stdin.lock())
     }
 

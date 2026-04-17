@@ -1,3 +1,5 @@
+use std::env;
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 /// Resolve a file path: expand ~ and canonicalize.
@@ -13,7 +15,7 @@ pub fn resolve(path: &str) -> Option<PathBuf> {
     let expanded = expand_tilde(path);
 
     // Try to canonicalize (resolves symlinks), fall back to cleaned path
-    match std::fs::canonicalize(&expanded) {
+    match fs::canonicalize(&expanded) {
         Ok(canonical) => Some(canonical),
         Err(_) => Some(PathBuf::from(expanded)),
     }
@@ -21,16 +23,16 @@ pub fn resolve(path: &str) -> Option<PathBuf> {
 
 fn expand_tilde(path: &str) -> String {
     if let Some(rest) = path.strip_prefix("~/")
-        && let Ok(home) = std::env::var("HOME")
+        && let Ok(home) = env::var("HOME")
     {
         return format!("{home}/{rest}");
     }
     if path == "~"
-        && let Ok(home) = std::env::var("HOME")
+        && let Ok(home) = env::var("HOME")
     {
         return home;
     }
-    path.to_string()
+    path.to_owned()
 }
 
 #[cfg(test)]

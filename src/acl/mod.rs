@@ -1,6 +1,9 @@
 pub mod path;
 pub mod rules;
 
+use std::env;
+use std::path::PathBuf;
+
 use crate::input::HookInput;
 use crate::output::Decision;
 
@@ -18,8 +21,8 @@ pub fn run(input: &HookInput, safe_dirs: &[String], deny_subagent: &[String]) {
         }
     };
 
-    let home = match std::env::var("HOME") {
-        Ok(h) => std::path::PathBuf::from(h),
+    let home = match env::var("HOME") {
+        Ok(h) => PathBuf::from(h),
         Err(_) => {
             Decision::deny("shields: HOME not set").print();
             return;

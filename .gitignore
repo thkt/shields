@@ -1,4 +1,7 @@
-/target
-review-report.md
+.DS_Store
+.yomu/
 .claude/
+docs/
+target/
 workspace/
+review-report.md

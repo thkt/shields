@@ -1,7 +1,7 @@
 /// Decode obfuscation while preserving shell structure (quotes stay intact).
 /// Applies: N7 (ANSI-C) → N5 (indirection) → N6 (backslash) → N3 (IFS).
 pub fn decode(command: &str) -> String {
-    let mut cmd = command.to_string();
+    let mut cmd = command.to_owned();
     if cmd.contains("$'") {
         cmd = n7_decode_ansi_c(&cmd);
     }
@@ -20,7 +20,7 @@ pub fn decode(command: &str) -> String {
 /// Strip shell structure (quotes, braces, command substitution markers).
 /// Applies: N1 (quotes) → N4 (braces) → N2 (cmd sub).
 pub fn strip(command: &str) -> String {
-    let mut cmd = command.to_string();
+    let mut cmd = command.to_owned();
     if cmd.contains(['\'', '"', '`']) {
         cmd = n1_strip_quotes(&cmd);
     }
