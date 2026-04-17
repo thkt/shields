@@ -210,7 +210,7 @@ fn compound_split(command: &str) -> Vec<String> {
 
 fn push_segment(segments: &mut Vec<String>, current: &mut String) {
     if !current.trim().is_empty() {
-        segments.push(current.trim().to_string());
+        segments.push(current.trim().to_owned());
     }
     current.clear();
 }
@@ -262,7 +262,7 @@ fn strip_wrappers(tokens: &[String], path: &mut Vec<String>) -> Vec<String> {
         let cmd = basename(&tokens[i]);
 
         if WRAPPERS.contains(&cmd) {
-            path.push(cmd.to_string());
+            path.push(cmd.to_owned());
             i += 1;
             // Skip env's KEY=VAL arguments
             if cmd == "env" {
@@ -274,7 +274,7 @@ fn strip_wrappers(tokens: &[String], path: &mut Vec<String>) -> Vec<String> {
         }
 
         if WRAPPERS_WITH_ARG.contains(&cmd) {
-            path.push(cmd.to_string());
+            path.push(cmd.to_owned());
             i += 1;
             if i < len {
                 i += 1;
@@ -363,7 +363,7 @@ mod tests {
     use super::*;
 
     fn tokens(args: &[&str]) -> Vec<String> {
-        args.iter().map(|s| s.to_string()).collect()
+        args.iter().map(ToString::to_string).collect()
     }
 
     // --- T-004: compound split ---
@@ -473,7 +473,7 @@ mod tests {
             .last()
             .unwrap()
             .iter()
-            .map(|s| s.as_str())
+            .map(String::as_str)
             .collect();
         assert_eq!(flat, vec!["rm", "-rf", "/"]);
     }
@@ -488,7 +488,7 @@ mod tests {
             .last()
             .unwrap()
             .iter()
-            .map(|s| s.as_str())
+            .map(String::as_str)
             .collect();
         assert_eq!(flat, vec!["rm", "-rf", "/"]);
     }
@@ -579,7 +579,7 @@ mod tests {
             .last()
             .unwrap()
             .iter()
-            .map(|s| s.as_str())
+            .map(String::as_str)
             .collect();
         assert_eq!(flat, vec!["rm", "-rf", "/"]);
     }
@@ -596,8 +596,8 @@ mod tests {
     #[test]
     fn path_tracks_wrappers() {
         let result = unwrap(r#"sudo env bash -c "rm -rf /""#);
-        assert!(result.path.contains(&"sudo".to_string()));
-        assert!(result.path.contains(&"env".to_string()));
+        assert!(result.path.contains(&"sudo".to_owned()));
+        assert!(result.path.contains(&"env".to_owned()));
         assert!(result.path.iter().any(|p| p.contains("bash")));
     }
 

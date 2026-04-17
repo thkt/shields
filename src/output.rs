@@ -1,3 +1,5 @@
+use std::process;
+
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -56,7 +58,7 @@ impl Decision {
             Ok(json) => println!("{json}"),
             Err(_) => {
                 eprintln!("shields: failed to serialize decision");
-                std::process::exit(2);
+                process::exit(2);
             }
         }
     }

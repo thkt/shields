@@ -1,6 +1,9 @@
+use std::fs;
+use std::io::ErrorKind;
+use std::path::{Component, Path};
+
 use regex::Regex;
 use serde::Deserialize;
-use std::path::{Component, Path};
 
 use crate::check::patterns::Pattern;
 
@@ -73,9 +76,9 @@ struct PatternDef {
 impl ShieldsConfig {
     pub fn load(project_dir: &Path) -> Self {
         let path = project_dir.join(TOOLS_CONFIG_FILE);
-        let content = match std::fs::read_to_string(&path) {
+        let content = match fs::read_to_string(&path) {
             Ok(c) => c,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Self::default(),
+            Err(e) if e.kind() == ErrorKind::NotFound => return Self::default(),
             Err(e) => {
                 eprintln!("shields: failed to read {}: {}", path.display(), e);
                 return Self::default();
