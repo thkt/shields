@@ -5,6 +5,8 @@ pub enum AclDecision {
     Approve,
     Ask,
     Deny,
+    /// No shields output: defer to Claude Code's standard permission flow.
+    Passthrough,
 }
 
 /// Priority order: deny > ask > approve.
@@ -91,8 +93,8 @@ pub fn evaluate(
         return (AclDecision::Ask, "Claude content directory");
     }
 
-    // 9. Everything else → ask (requires user confirmation)
-    (AclDecision::Ask, "Requires user confirmation")
+    // 9. Everything else → passthrough (defer to standard permission flow)
+    (AclDecision::Passthrough, "No special handling required")
 }
 
 fn path_matches(file_path: &Path, target: &Path) -> bool {
@@ -425,10 +427,10 @@ mod tests {
         assert_eq!(decision, AclDecision::Ask);
     }
 
-    // --- Non-.claude paths → ask ---
+    // --- Non-.claude paths → passthrough (standard permission flow) ---
 
     #[test]
-    fn project_file_ask() {
+    fn project_file_passthrough() {
         let (decision, _) = evaluate(
             Path::new("/Users/test/project/src/main.rs"),
             "Write",
@@ -437,7 +439,7 @@ mod tests {
             &[],
             &[],
         );
-        assert_eq!(decision, AclDecision::Ask);
+        assert_eq!(decision, AclDecision::Passthrough);
     }
 
     // --- SEC-08: expanded SSH key coverage ---
@@ -561,10 +563,10 @@ mod tests {
         assert_eq!(decision, AclDecision::Ask);
     }
 
-    // --- TC-04: non-write tool on sensitive file → falls through ---
+    // --- TC-04: non-write tool on sensitive file → falls through to passthrough ---
 
     #[test]
-    fn env_bash_tool_ask() {
+    fn env_bash_tool_passthrough() {
         let (decision, _) = evaluate(
             Path::new("/Users/test/project/.env"),
             "Bash",
@@ -573,7 +575,7 @@ mod tests {
             &[],
             &[],
         );
-        assert_eq!(decision, AclDecision::Ask);
+        assert_eq!(decision, AclDecision::Passthrough);
     }
 
     // --- TC-08: subagent × sensitive file combinations ---

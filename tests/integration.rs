@@ -263,3 +263,12 @@ fn acl_passes_bash_tool() {
     assert!(stdout.is_empty());
     assert_eq!(code, 0);
 }
+
+// Ordinary project file (no ACL rule matches) → passthrough: no output, defer to standard flow
+#[test]
+fn acl_passes_ordinary_project_file() {
+    let input = r#"{"tool_name":"Write","tool_input":{"file_path":"/tmp/project/src/main.rs"}}"#;
+    let (stdout, _, code) = shields("acl", input);
+    assert!(stdout.is_empty());
+    assert_eq!(code, 0);
+}
