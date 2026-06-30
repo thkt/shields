@@ -5,7 +5,7 @@ use std::path::{Component, Path};
 use regex::Regex;
 use serde::Deserialize;
 
-use crate::check::patterns::Pattern;
+use crate::check::patterns::{Action, Pattern};
 
 fn validate_relative_paths(paths: Vec<String>, label: &str) -> Vec<String> {
     paths
@@ -108,6 +108,7 @@ impl ShieldsConfig {
                     id: def.id,
                     regex: re,
                     context: def.context,
+                    action: Action::Block,
                 }),
                 Err(e) => {
                     errors.push(format!("invalid custom pattern '{}': {}", def.id, e));

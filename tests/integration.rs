@@ -93,12 +93,12 @@ fn check_blocks_absolute_path_rm() {
     assert_eq!(parse_decision(&stdout), Some("block".into()));
 }
 
-// T-033: blocked pattern has stderr log
+// T-033: matched pattern has stderr log (git-push is an ask-action handoff)
 #[test]
-fn check_block_logs_to_stderr() {
+fn check_match_logs_to_stderr() {
     let input = r#"{"tool_name":"Bash","tool_input":{"command":"git push origin main"}}"#;
     let (stdout, stderr, _) = shields("check", input);
-    assert_eq!(parse_decision(&stdout), Some("block".into()));
+    assert_eq!(parse_decision(&stdout), Some("ask".into()));
     assert!(stderr.contains("git-push"));
 }
 

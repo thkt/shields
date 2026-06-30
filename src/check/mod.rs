@@ -80,7 +80,7 @@ fn check_via_unwrap(decoded: &str, ctx: &LogContext, pats: &PatternSets) -> bool
             .or_else(|| pats.find_match(&stripped))
         {
             let via = format_path(&result.path);
-            block_on_pattern(pat, &via, ctx);
+            decide_on_pattern(pat, &via, ctx);
             return true;
         }
     }
@@ -95,7 +95,7 @@ fn check_via_fallback(decoded: &str, ctx: &LogContext, pats: &PatternSets) -> bo
 
     for target in [ctx.oneline, decoded, stripped.as_str()] {
         if let Some(pat) = pats.find_match(target) {
-            block_on_pattern(pat, "", ctx);
+            decide_on_pattern(pat, "", ctx);
             return true;
         }
     }
@@ -123,17 +123,29 @@ impl PatternSets<'_> {
     }
 }
 
-fn block_on_pattern(pat: &patterns::Pattern, via: &str, ctx: &LogContext) {
+fn decision_for(pat: &patterns::Pattern) -> Decision {
+    match pat.action {
+        patterns::Action::Block => Decision::block(
+            &format!("Dangerous pattern: {}", pat.id),
+            Some(&pat.context),
+        ),
+        patterns::Action::Ask => {
+            Decision::ask(&format!("Review required: {}", pat.id), Some(&pat.context))
+        }
+    }
+}
+
+fn decide_on_pattern(pat: &patterns::Pattern, via: &str, ctx: &LogContext) {
+    let label = match pat.action {
+        patterns::Action::Block => "BLOCKED",
+        patterns::Action::Ask => "ASK",
+    };
     eprintln!(
-        "shields: BLOCKED tool={} agent={} pattern=\"{}\"{via} command=\"{}\"",
+        "shields: {label} tool={} agent={} pattern=\"{}\"{via} command=\"{}\"",
         ctx.tool, ctx.agent, pat.id, ctx.oneline
     );
     eprintln!("shields: hint: {}", pat.context);
-    Decision::block(
-        &format!("Dangerous pattern: {}", pat.id),
-        Some(&pat.context),
-    )
-    .print();
+    decision_for(pat).print();
 }
 
 fn format_path(path: &[String]) -> String {
@@ -141,5 +153,31 @@ fn format_path(path: &[String]) -> String {
         String::new()
     } else {
         format!(" (via {})", path.join(" > "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use patterns::{builtin_patterns, check_command};
+
+    fn matched(command: &str) -> &'static patterns::Pattern {
+        check_command(command, builtin_patterns()).expect("command should match a builtin pattern")
+    }
+
+    #[test]
+    fn ask_pattern_yields_ask_decision() {
+        let pat = matched("git push origin main");
+        assert_eq!(pat.id, "git-push");
+        let json = serde_json::to_value(decision_for(pat)).unwrap();
+        assert_eq!(json["decision"], "ask");
+    }
+
+    #[test]
+    fn block_pattern_yields_block_decision() {
+        let pat = matched("rm -rf /tmp/x");
+        assert_eq!(pat.id, "rm-recursive");
+        let json = serde_json::to_value(decision_for(pat)).unwrap();
+        assert_eq!(json["decision"], "block");
     }
 }

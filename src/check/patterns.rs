@@ -1,19 +1,42 @@
 use regex::Regex;
 use std::sync::LazyLock;
 
+/// How a matched pattern is enforced.
+///
+/// `Block` stops the command outright (irreversible destruction, RCE, data
+/// exfiltration). `Ask` defers to user confirmation (reversible or
+/// working-tree/handoff operations).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    Block,
+    Ask,
+}
+
 pub struct Pattern {
     pub id: String,
     pub regex: Regex,
     pub context: String,
+    pub action: Action,
 }
 
 impl Pattern {
+    /// Hard-block pattern (critical: irreversible, RCE, or exfiltration).
     pub fn new(id: &str, pattern: &str, context: &str) -> Self {
+        Self::with_action(id, pattern, context, Action::Block)
+    }
+
+    /// Ask pattern (reversible or user-handoff: deferred to confirmation).
+    pub fn ask(id: &str, pattern: &str, context: &str) -> Self {
+        Self::with_action(id, pattern, context, Action::Ask)
+    }
+
+    fn with_action(id: &str, pattern: &str, context: &str, action: Action) -> Self {
         Self {
             id: id.to_owned(),
             regex: Regex::new(pattern)
                 .unwrap_or_else(|e| panic!("shields: invalid builtin pattern '{id}': {e}")),
             context: context.to_owned(),
+            action,
         }
     }
 }
@@ -73,33 +96,33 @@ fn init_builtin_patterns() -> Vec<Pattern> {
             r"\b(bash|sh|zsh|dash|ksh|source|\.)\s+<\(",
             "Do not execute remote content via process substitution. Download the file, review it, then execute.",
         ),
-        // --- Destructive git operations ---
-        Pattern::new(
+        // --- Destructive git operations (ask: user-handoff working-tree ops) ---
+        Pattern::ask(
             "git-push",
             r"\bgit\s.*\bpush\b",
             "Affects shared remote state. Show the exact command and suggest the user run it with `!` prefix.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "git-checkout-all",
             r"\bgit\s+(checkout|restore)\s+(\.|\.[\s]|--\s+\.)",
             "Discards all working directory changes. Specify individual files, or show the command and suggest the user run it with `!` prefix.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "git-clean",
             r"\bgit\s+clean\s+-[a-zA-Z0-9]*[fd]",
             "Deletes untracked files irreversibly. Show the exact command and suggest the user run it with `!` prefix.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "git-reset-hard",
             r"\bgit\s+reset\s+--hard",
             "Discards uncommitted changes irreversibly. Show the exact command and suggest the user run it with `!` prefix.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "git-stash-drop",
             r"\bgit\s+stash\s+(drop|clear)",
             "Drops/clears stash entries irreversibly. Show the exact command and suggest the user run it with `!` prefix.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "git-branch-force-delete",
             r"\bgit\s+branch\s+-D\b",
             "Force-deletes unmerged branches. Use -d for safe deletion, or show the command and suggest the user run it with `!` prefix.",
@@ -126,20 +149,10 @@ fn init_builtin_patterns() -> Vec<Pattern> {
             r"\beval\s",
             "Do not use eval. Write the command directly.",
         ),
-        Pattern::new(
-            "sed-in-place",
-            r"\bsed\s.*-i\b",
-            "Use the Edit tool instead of sed -i for in-place file modification.",
-        ),
-        Pattern::new(
-            "sed-in-place-long",
-            r"\bsed\s.*--in-place\b",
-            "Use the Edit tool instead of sed --in-place for in-place file modification.",
-        ),
-        Pattern::new(
+        Pattern::ask(
             "awk-system",
             r"\bawk\s.*system\s*\(",
-            "Do not use awk system(). Run the command directly via Bash.",
+            "awk system() runs arbitrary commands shields cannot unwrap. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         // --- Download-then-execute ---
         Pattern::new(
@@ -152,51 +165,51 @@ fn init_builtin_patterns() -> Vec<Pattern> {
             r"\bwget\s.*-O\s+/tmp",
             "Do not download files to /tmp for execution. Ask the user to review first.",
         ),
-        // --- Interpreter bypass ---
-        Pattern::new(
+        // --- Interpreter bypass (ask: arbitrary code shields cannot unwrap like bash -c) ---
+        Pattern::ask(
             "python-inline",
             r"\bpython[23]?\s+-c\b",
-            "Do not use python -c for inline execution. Write a script file instead.",
+            "python -c runs arbitrary code shields cannot unwrap. Show the exact command and suggest the user run it with `!` prefix.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "perl-inline",
             r"\bperl\s+-e\b",
-            "Do not use perl -e for inline execution. Write a script file instead.",
+            "perl -e runs arbitrary code shields cannot unwrap. Show the exact command and suggest the user run it with `!` prefix.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "ruby-inline",
             r"\bruby\s+-e\b",
-            "Do not use ruby -e for inline execution. Write a script file instead.",
+            "ruby -e runs arbitrary code shields cannot unwrap. Show the exact command and suggest the user run it with `!` prefix.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "node-inline",
             r"\bnode\s+-e\b",
-            "Do not use node -e for inline execution. Write a script file instead.",
+            "node -e runs arbitrary code shields cannot unwrap. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         Pattern::new(
             "base64-pipe-shell",
             r"\bbase64\s.*\|\s*(bash|sh|zsh|dash|ksh)\b",
             "Do not decode and execute base64-encoded commands.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "osascript",
             r"\bosascript\s",
-            "Can execute arbitrary code. Show the exact command and suggest the user run it with `!` prefix.",
+            "Can execute arbitrary code (do shell script can hide rm -rf). Show the exact command and suggest the user run it with `!` prefix.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "php-inline",
             r"\bphp\s+-r\b",
-            "Do not use php -r for inline execution. Write a script file instead.",
+            "php -r runs arbitrary code shields cannot unwrap. Show the exact command and suggest the user run it with `!` prefix.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "deno-exec",
             r"\bdeno\s+(run|eval|repl)\b",
-            "Do not use deno run/eval for arbitrary execution.",
+            "deno run/eval executes arbitrary code shields cannot unwrap. Show the exact command and suggest the user run it with `!` prefix.",
         ),
-        Pattern::new(
+        Pattern::ask(
             "bun-exec",
             r"\bbun\s+(run|x|eval)\b",
-            "Do not use bun run/eval for arbitrary execution. Use the package manager workflow.",
+            "bun run/eval executes arbitrary code shields cannot unwrap. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         // --- Data exfiltration: raw socket ---
         Pattern::new(
@@ -254,7 +267,7 @@ fn init_builtin_patterns() -> Vec<Pattern> {
             "Destructive SQL. Show the exact command and suggest the user run it with `!` prefix.",
         ),
         // --- GitHub impersonation ---
-        Pattern::new(
+        Pattern::ask(
             "gh-impersonation",
             r"\bgh\s+pr\s+(comment|review|edit)\b|\bgh\s+issue\s+comment\b",
             "Posts/edits content as the user on GitHub. Draft the content first, then show the command and suggest the user run it with `!` prefix.",
@@ -400,18 +413,6 @@ mod tests {
     #[test]
     fn t030_eval() {
         assert!(check_command("eval dangerous_cmd", builtin_patterns()).is_some());
-    }
-
-    #[test]
-    fn t030_sed_in_place() {
-        assert!(check_command("sed -i 's/foo/bar/' file.txt", builtin_patterns()).is_some());
-    }
-
-    #[test]
-    fn t030_sed_in_place_long() {
-        assert!(
-            check_command("sed --in-place 's/foo/bar/' file.txt", builtin_patterns()).is_some()
-        );
     }
 
     #[test]
@@ -857,5 +858,19 @@ mod tests {
         // rm -rf matches both rm-recursive and rm-force; first one wins
         let m = check_command("rm -rf /", pats).unwrap();
         assert_eq!(m.id, "rm-recursive");
+    }
+
+    #[test]
+    fn handoff_pattern_is_ask_action() {
+        let m = check_command("git push origin main", builtin_patterns()).unwrap();
+        assert_eq!(m.id, "git-push");
+        assert_eq!(m.action, Action::Ask);
+    }
+
+    #[test]
+    fn destructive_pattern_is_block_action() {
+        let m = check_command("rm -rf /tmp/x", builtin_patterns()).unwrap();
+        assert_eq!(m.id, "rm-recursive");
+        assert_eq!(m.action, Action::Block);
     }
 }
