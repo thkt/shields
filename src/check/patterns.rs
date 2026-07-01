@@ -191,10 +191,10 @@ fn init_builtin_patterns() -> Vec<Pattern> {
             r"\bbase64\s.*\|\s*(bash|sh|zsh|dash|ksh)\b",
             "Do not decode and execute base64-encoded commands.",
         ),
-        Pattern::ask(
+        Pattern::new(
             "osascript",
             r"\bosascript\s",
-            "Can execute arbitrary code (do shell script can hide rm -rf). Show the exact command and suggest the user run it with `!` prefix.",
+            "osascript \"do shell script\" can hide arbitrary commands (e.g. rm -rf) that shields cannot inspect. Not allowed via automation.",
         ),
         Pattern::ask(
             "php-inline",
@@ -210,6 +210,21 @@ fn init_builtin_patterns() -> Vec<Pattern> {
             "bun-exec",
             r"\bbun\s+(run|x|eval)\b",
             "bun run/eval executes arbitrary code shields cannot unwrap. Show the exact command and suggest the user run it with `!` prefix.",
+        ),
+        // --- In-place file overwrite (Edit-tool handoff) ---
+        // `[^|;(&]*\s` anchors `-i` to a flag token: it stays within the sed
+        // command (no crossing a pipe/chain into `grep -i`) and requires
+        // whitespace before the flag (so `-i` inside a `s/-i/…/` script is not
+        // a false in-place match).
+        Pattern::ask(
+            "sed-in-place",
+            r"\bsed\b[^|;(&]*\s-i\b",
+            "sed -i overwrites files in place. Prefer the Edit tool; if intentional, run it with the `!` prefix.",
+        ),
+        Pattern::ask(
+            "sed-in-place-long",
+            r"\bsed\b[^|;(&]*\s--in-place\b",
+            "sed --in-place overwrites files in place. Prefer the Edit tool; if intentional, run it with the `!` prefix.",
         ),
         // --- Data exfiltration: raw socket ---
         Pattern::new(
@@ -872,5 +887,113 @@ mod tests {
         let m = check_command("rm -rf /tmp/x", builtin_patterns()).unwrap();
         assert_eq!(m.id, "rm-recursive");
         assert_eq!(m.action, Action::Block);
+    }
+
+    // CLUSTER-C: osascript hides shell via "do shell script"; it is a hard block,
+    // not a handoff ask.
+    #[test]
+    fn osascript_is_block_action() {
+        let m = check_command("osascript /tmp/hidden.scpt", builtin_patterns()).unwrap();
+        assert_eq!(m.id, "osascript");
+        assert_eq!(m.action, Action::Block);
+    }
+
+    // CLUSTER-D: sed in-place overwrite is restored as an ask (Edit-tool handoff),
+    // both the short (-i) and long (--in-place) spellings.
+    #[test]
+    fn sed_in_place_short_is_ask_action() {
+        let m = check_command("sed -i 's/a/b/' .env.production", builtin_patterns()).unwrap();
+        assert_eq!(m.id, "sed-in-place");
+        assert_eq!(m.action, Action::Ask);
+    }
+
+    #[test]
+    fn sed_in_place_long_is_ask_action() {
+        let m = check_command("sed --in-place 's/a/b/' config.toml", builtin_patterns()).unwrap();
+        assert_eq!(m.id, "sed-in-place-long");
+        assert_eq!(m.action, Action::Ask);
+    }
+
+    // silence SF5-1 / resilience CHX-NEW-4: the sed-in-place regex must anchor
+    // `-i` to a flag position. A pipe into `grep -i` and a `-i` inside the
+    // substitution script are not in-place edits and must not trigger an Ask.
+    #[test]
+    fn sed_piped_into_grep_i_is_not_matched() {
+        assert!(check_command("sed 's/a/b/' file | grep -i needle", builtin_patterns()).is_none());
+    }
+
+    #[test]
+    fn sed_dash_i_inside_script_is_not_matched() {
+        assert!(check_command("sed 's/-i/foo/' file", builtin_patterns()).is_none());
+    }
+
+    /// Tier integrity: every builtin's action is pinned by id. A `Pattern::new`
+    /// ↔ `Pattern::ask` swap (e.g. demoting rm-recursive to Ask, or silently
+    /// re-blocking an interpreter handoff) flips a cell here and fails the test.
+    /// The two `assert` lines below also fail if a pattern is added or removed
+    /// without updating this table, so the table cannot silently drift.
+    #[test]
+    fn every_builtin_action_matches_its_tier() {
+        use Action::{Ask, Block};
+        let expected: &[(&str, Action)] = &[
+            ("rm-recursive", Block),
+            ("rm-force", Block),
+            ("rmdir", Block),
+            ("unlink", Block),
+            ("shred", Block),
+            ("curl-pipe-shell", Block),
+            ("wget-pipe-shell", Block),
+            ("curl-output-pipe", Block),
+            ("process-sub-exec", Block),
+            ("git-push", Ask),
+            ("git-checkout-all", Ask),
+            ("git-clean", Ask),
+            ("git-reset-hard", Ask),
+            ("git-stash-drop", Ask),
+            ("git-branch-force-delete", Ask),
+            ("xargs-delete", Block),
+            ("find-exec-danger", Block),
+            ("find-delete", Block),
+            ("eval", Block),
+            ("awk-system", Ask),
+            ("curl-download-tmp", Block),
+            ("wget-download-tmp", Block),
+            ("python-inline", Ask),
+            ("perl-inline", Ask),
+            ("ruby-inline", Ask),
+            ("node-inline", Ask),
+            ("base64-pipe-shell", Block),
+            ("osascript", Block),
+            ("php-inline", Ask),
+            ("deno-exec", Ask),
+            ("bun-exec", Ask),
+            ("sed-in-place", Ask),
+            ("sed-in-place-long", Ask),
+            ("raw-socket", Block),
+            ("curl-upload", Block),
+            ("curl-form-upload", Block),
+            ("wget-post-file", Block),
+            ("scp", Block),
+            ("rsync-remote", Block),
+            ("bash-reverse-shell", Block),
+            ("mkfifo", Block),
+            ("sql-drop", Block),
+            ("sql-truncate", Block),
+            ("gh-impersonation", Ask),
+        ];
+
+        let builtins = builtin_patterns();
+        assert_eq!(
+            builtins.len(),
+            expected.len(),
+            "builtin count drifted from the tier table; update every_builtin_action_matches_its_tier"
+        );
+        for pat in builtins {
+            let want = expected
+                .iter()
+                .find(|(id, _)| *id == pat.id)
+                .unwrap_or_else(|| panic!("builtin '{}' is missing from the tier table", pat.id));
+            assert_eq!(pat.action, want.1, "tier mismatch for pattern '{}'", pat.id);
+        }
     }
 }

@@ -38,14 +38,14 @@ pub fn evaluate(
         }
     }
 
-    // 2. Sensitive file access → deny writes, ask reads
+    // 2. Sensitive file access → deny writes, ask everything else.
+    // No fallthrough: a sensitive path must never reach the rule-9 Passthrough,
+    // so a tool that is neither write-class nor Read still prompts.
     if is_sensitive_file(file_path) {
         if is_write_tool(tool_name) {
             return (AclDecision::Deny, "Sensitive file write blocked");
         }
-        if tool_name == "Read" {
-            return (AclDecision::Ask, "Reading sensitive file");
-        }
+        return (AclDecision::Ask, "Sensitive file access");
     }
 
     // 3. Security-critical .claude/ paths → ask
@@ -105,7 +105,7 @@ fn is_sensitive_file(path: &Path) -> bool {
     let path_str = path.to_string_lossy();
 
     // Extension-based checks
-    let sensitive_extensions = [".env", ".key", ".secret", ".token", ".credentials"];
+    let sensitive_extensions = [".env", ".key", ".secret", ".token", ".credentials", ".pem"];
     for ext in &sensitive_extensions {
         if path_str.ends_with(ext) || path_str.contains(&format!("{ext}.")) {
             return true;
@@ -126,6 +126,17 @@ fn is_sensitive_file(path: &Path) -> bool {
 
     // Secrets directory
     if path_str.contains("/secrets/") {
+        return true;
+    }
+
+    // Cloud credential dirs and network auth file. Lowercase first: macOS HFS+
+    // is case-insensitive, so /.AWS/credentials resolves to the same file, but a
+    // case-sensitive match would miss it and fall through to rule-9 Passthrough.
+    let lower = path_str.to_ascii_lowercase();
+    if lower.contains("/.aws/") || lower.contains("/.kube/") {
+        return true;
+    }
+    if lower.ends_with("/.netrc") {
         return true;
     }
 
@@ -563,19 +574,92 @@ mod tests {
         assert_eq!(decision, AclDecision::Ask);
     }
 
-    // --- TC-04: non-write tool on sensitive file → falls through to passthrough ---
+    // --- RC-3: non-write tool on sensitive file → ask (no passthrough fallthrough) ---
+    // A sensitive path reached by a tool that is neither write-class nor Read
+    // (e.g. NotebookEdit) must prompt, not silently defer to the standard flow.
+    // (At runtime Bash carries no file_path, so acl::run early-returns before
+    // evaluate — covered by the acl_passes_bash_tool integration test.)
 
     #[test]
-    fn env_bash_tool_passthrough() {
+    fn sensitive_file_non_write_tool_asks() {
         let (decision, _) = evaluate(
             Path::new("/Users/test/project/.env"),
-            "Bash",
+            "NotebookEdit",
             false,
             &home(),
             &[],
             &[],
         );
-        assert_eq!(decision, AclDecision::Passthrough);
+        assert_eq!(decision, AclDecision::Ask);
+    }
+
+    // --- CLUSTER-A: cloud credential + network auth locations are sensitive ---
+
+    #[test]
+    fn aws_credentials_write_denied() {
+        let (decision, _) = evaluate(
+            Path::new("/Users/test/.aws/credentials"),
+            "Write",
+            false,
+            &home(),
+            &[],
+            &[],
+        );
+        assert_eq!(decision, AclDecision::Deny);
+    }
+
+    #[test]
+    fn kube_config_write_denied() {
+        let (decision, _) = evaluate(
+            Path::new("/Users/test/.kube/config"),
+            "Write",
+            false,
+            &home(),
+            &[],
+            &[],
+        );
+        assert_eq!(decision, AclDecision::Deny);
+    }
+
+    #[test]
+    fn pem_file_write_denied() {
+        let (decision, _) = evaluate(
+            Path::new("/Users/test/certs/server.pem"),
+            "Write",
+            false,
+            &home(),
+            &[],
+            &[],
+        );
+        assert_eq!(decision, AclDecision::Deny);
+    }
+
+    #[test]
+    fn netrc_write_denied() {
+        let (decision, _) = evaluate(
+            Path::new("/Users/test/.netrc"),
+            "Write",
+            false,
+            &home(),
+            &[],
+            &[],
+        );
+        assert_eq!(decision, AclDecision::Deny);
+    }
+
+    // security F-1: macOS HFS+ is case-insensitive, so `/.AWS/credentials`
+    // resolves to the same file as `/.aws/credentials`; the check must match it.
+    #[test]
+    fn aws_credentials_uppercase_write_denied() {
+        let (decision, _) = evaluate(
+            Path::new("/Users/test/.AWS/credentials"),
+            "Write",
+            false,
+            &home(),
+            &[],
+            &[],
+        );
+        assert_eq!(decision, AclDecision::Deny);
     }
 
     // --- TC-08: subagent × sensitive file combinations ---
