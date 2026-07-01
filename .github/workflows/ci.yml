@@ -19,6 +19,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@56f84321dbccf38fb67ce29ab63e4754056677e0 # stable
@@ -29,17 +31,87 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
 
+      - name: Install nextest
+        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        with:
+          tool: cargo-nextest
+
       - name: Check
         run: cargo check
 
       - name: Test
-        run: cargo test
+        run: cargo nextest run --profile ci
 
       - name: Clippy
         run: cargo clippy -- -D warnings
 
       - name: Format check
         run: cargo fmt -- --check
+
+  coverage:
+    # Coverage delta gate: fail when project line coverage (C0) drops vs main.
+    # Measures base-vs-head total C0 rather than diff-cover changed-lines: a
+    # move-only refactor relocates already-tested lines, which diff-cover reads
+    # as "new and uncovered" on the added side even though total coverage is
+    # unchanged. Base-vs-head total C0 is move-immune (relocated lines cancel),
+    # while genuinely new untested code still lowers the total and fails. No
+    # absolute floor, so pre-existing unreachable code is never flagged.
+    # No --ignore-filename-regex excludes: shields keeps all tests inline as
+    # `#[cfg(test)] mod tests {}` (no separate tests.rs to skew the denominator)
+    # and has no network-IO module whose coverage flickers run-to-run. Add an
+    # exclude only if CI shows a file's coverage is nondeterministic.
+    # Runs on ubuntu like the test job.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@56f84321dbccf38fb67ce29ab63e4754056677e0 # stable
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: Coverage delta gate (project C0 must not drop vs main)
+        run: |
+          set -euo pipefail
+          # Sum LH (lines hit) / LF (lines found) across an lcov report -> C0 %.
+          c0() { awk -F: '/^LF:/{f+=$2} /^LH:/{h+=$2} END{ if (f==0) print "100.0"; else printf "%.4f", h*100/f }' "$1"; }
+          # HEAD = PR merged into main (the checked-out pull_request ref).
+          # cargo llvm-cov cleans stale profraw at the start of each run, so the
+          # two measurements below do not mix.
+          cargo llvm-cov --lcov --output-path head.info
+          head_c0=$(c0 head.info)
+          # BASE = main (fetch-depth:0 already has the history).
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          git checkout --quiet --force origin/main
+          cargo llvm-cov --lcov --output-path base.info
+          base_c0=$(c0 base.info)
+          # 0.1pp tolerance absorbs instrumentation rounding / total line drift.
+          awk -v b="$base_c0" -v h="$head_c0" 'BEGIN {
+            printf "C0 coverage: main %.2f%% -> PR %.2f%%\n", b, h
+            if (h + 0.1 < b) {
+              printf "::error::C0 coverage dropped %.2f%% -> %.2f%% (tolerance 0.1pp)\n", b, h
+              exit 1
+            }
+            print "OK: coverage did not drop"
+          }'
+
   security:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -48,6 +120,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@56f84321dbccf38fb67ce29ab63e4754056677e0 # stable
