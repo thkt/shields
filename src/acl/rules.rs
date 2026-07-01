@@ -48,6 +48,14 @@ pub fn evaluate(
         return (AclDecision::Ask, "Sensitive file access");
     }
 
+    // 2b. Ambiguous credential file: ask on every tool, writes included. A `.pem`
+    // is a private key OR a public cert; a hard deny would block routine cert
+    // writes (fullchain.pem) with no override path, so downgrade to a prompt and
+    // let the user judge. `.key.pem`/`.secret.pem` already deny via rule 2.
+    if is_ambiguous_sensitive_file(file_path) {
+        return (AclDecision::Ask, "Ambiguous credential file");
+    }
+
     // 3. Security-critical .claude/ paths → ask
     let security_paths = [
         claude_dir.join("hooks/security"),
@@ -104,8 +112,9 @@ fn path_matches(file_path: &Path, target: &Path) -> bool {
 fn is_sensitive_file(path: &Path) -> bool {
     let path_str = path.to_string_lossy();
 
-    // Extension-based checks
-    let sensitive_extensions = [".env", ".key", ".secret", ".token", ".credentials", ".pem"];
+    // Extension-based checks. `.pem` is handled separately (ambiguous_sensitive):
+    // it may be a public cert, so it asks rather than denies on write.
+    let sensitive_extensions = [".env", ".key", ".secret", ".token", ".credentials"];
     for ext in &sensitive_extensions {
         if path_str.ends_with(ext) || path_str.contains(&format!("{ext}.")) {
             return true;
@@ -136,11 +145,21 @@ fn is_sensitive_file(path: &Path) -> bool {
     if lower.contains("/.aws/") || lower.contains("/.kube/") {
         return true;
     }
-    if lower.ends_with("/.netrc") {
+    // `/.netrc` and its backup copies (`.netrc.bak`, `.netrc.old`) hold live
+    // login credentials; the backup names must not slip through to Passthrough.
+    if lower.ends_with("/.netrc") || lower.contains("/.netrc.") {
         return true;
     }
 
     false
+}
+
+/// A `.pem` file is dual-use: a public certificate or a private key. It asks on
+/// every tool (writes included) instead of denying, so routine cert writes are
+/// not hard-blocked. Private-key variants (`.key.pem`) deny via is_sensitive_file.
+fn is_ambiguous_sensitive_file(path: &Path) -> bool {
+    let path_str = path.to_string_lossy();
+    path_str.ends_with(".pem") || path_str.contains(".pem.")
 }
 
 fn is_write_tool(tool_name: &str) -> bool {
@@ -621,10 +640,27 @@ mod tests {
         assert_eq!(decision, AclDecision::Deny);
     }
 
+    // A bare `.pem` is dual-use (public cert or private key). Writes ask rather
+    // than deny, so a routine cert write (fullchain.pem) is not hard-blocked.
     #[test]
-    fn pem_file_write_denied() {
+    fn pem_file_write_asks() {
         let (decision, _) = evaluate(
             Path::new("/Users/test/certs/server.pem"),
+            "Write",
+            false,
+            &home(),
+            &[],
+            &[],
+        );
+        assert_eq!(decision, AclDecision::Ask);
+    }
+
+    // A private key carrying a `.pem` suffix (`.key.pem`) still hard-denies on
+    // write via the `.key` sensitive-extension rule, not the ambiguous downgrade.
+    #[test]
+    fn key_pem_file_write_denied() {
+        let (decision, _) = evaluate(
+            Path::new("/Users/test/certs/server.key.pem"),
             "Write",
             false,
             &home(),
@@ -645,6 +681,75 @@ mod tests {
             &[],
         );
         assert_eq!(decision, AclDecision::Deny);
+    }
+
+    // A `.netrc` backup copy still holds live credentials; the backup name must
+    // deny on write, not fall through to Passthrough.
+    #[test]
+    fn netrc_backup_write_denied() {
+        let (decision, _) = evaluate(
+            Path::new("/Users/test/.netrc.bak"),
+            "Write",
+            false,
+            &home(),
+            &[],
+            &[],
+        );
+        assert_eq!(decision, AclDecision::Deny);
+    }
+
+    // --- F2: read access to the new sensitive types asks (does not deny) ---
+
+    #[test]
+    fn aws_credentials_read_ask() {
+        let (decision, _) = evaluate(
+            Path::new("/Users/test/.aws/credentials"),
+            "Read",
+            false,
+            &home(),
+            &[],
+            &[],
+        );
+        assert_eq!(decision, AclDecision::Ask);
+    }
+
+    #[test]
+    fn kube_config_read_ask() {
+        let (decision, _) = evaluate(
+            Path::new("/Users/test/.kube/config"),
+            "Read",
+            false,
+            &home(),
+            &[],
+            &[],
+        );
+        assert_eq!(decision, AclDecision::Ask);
+    }
+
+    #[test]
+    fn netrc_read_ask() {
+        let (decision, _) = evaluate(
+            Path::new("/Users/test/.netrc"),
+            "Read",
+            false,
+            &home(),
+            &[],
+            &[],
+        );
+        assert_eq!(decision, AclDecision::Ask);
+    }
+
+    #[test]
+    fn pem_file_read_ask() {
+        let (decision, _) = evaluate(
+            Path::new("/Users/test/certs/server.pem"),
+            "Read",
+            false,
+            &home(),
+            &[],
+            &[],
+        );
+        assert_eq!(decision, AclDecision::Ask);
     }
 
     // security F-1: macOS HFS+ is case-insensitive, so `/.AWS/credentials`
