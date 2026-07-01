@@ -42,5 +42,7 @@ pub fn run(input: &HookInput, safe_dirs: &[String], deny_subagent: &[String]) {
         rules::AclDecision::Approve => Decision::approve(reason).print(),
         rules::AclDecision::Ask => Decision::ask(reason, None).print(),
         rules::AclDecision::Deny => Decision::deny(reason).print(),
+        // No output: defer to Claude Code's standard permission flow.
+        rules::AclDecision::Passthrough => {}
     }
 }
